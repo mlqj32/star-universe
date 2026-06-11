@@ -199,17 +199,6 @@ function addMarker(group, { id, name, pos, r, color = 0x8899ff, prefix = '◈ ' 
   m.userData.cosmicName = name;
   m.userData.cosmicRadius = r;
 
-  const pickR = Math.max(r * 12, 22000);
-  const pick = new THREE.Mesh(
-    new THREE.SphereGeometry(pickR, 10, 10),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  pick.name = 'cosmicPick';
-  pick.userData.cosmicId = id;
-  pick.userData.cosmicName = name;
-  pick.userData.cosmicRadius = r;
-  m.add(pick);
-
   const lbl = makeLabel(prefix + name);
   lbl.position.set(0, r * 1.6, 0);
   m.add(lbl);
@@ -395,17 +384,8 @@ function addUniverseHomeAnchor(group) {
   hover.name = 'universeHomeHover';
   hover.userData.cosmicId = 'milkyway';
   hover.userData.cosmicName = '银河系';
+  hover.userData.cosmicRadius = 1200;
   anchor.add(hover);
-
-  const pick = new THREE.Mesh(
-    new THREE.SphereGeometry(48000, 10, 10),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  pick.name = 'cosmicPick';
-  pick.userData.cosmicId = 'milkyway';
-  pick.userData.cosmicName = '银河系';
-  pick.userData.cosmicRadius = 1200;
-  anchor.add(pick);
 
   group.add(anchor);
   return anchor;
@@ -521,18 +501,14 @@ export function getCosmicItem(id) {
   );
 }
 
-/** 收集宇宙标记碰撞体：悬停仅可见球体，双击保留扩大热区 */
-export function collectCosmicPickTargets(cosmos, { forHover = false } = {}) {
+/** 宇宙标记碰撞体：悬停与双击共用可见标记球（与显示大小一致） */
+export function collectCosmicPickTargets(cosmos) {
   const targets = [];
   for (const root of [cosmos?.universe, cosmos?.deepSpace]) {
     if (!root) continue;
     root.traverse((obj) => {
-      if (forHover) {
-        if (obj.name === 'universeHomeHover') targets.push(obj);
-        else if (obj.name?.startsWith('cosmic_')) targets.push(obj);
-      } else if (obj.name === 'cosmicPick') {
-        targets.push(obj);
-      }
+      if (obj.name === 'universeHomeHover') targets.push(obj);
+      else if (obj.name?.startsWith('cosmic_')) targets.push(obj);
     });
   }
   return targets;

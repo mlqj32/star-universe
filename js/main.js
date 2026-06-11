@@ -2620,10 +2620,7 @@ function pickPlanetAt(clientX, clientY, { forHover = false } = {}) {
     !state.roamingSystemId &&
     ((state.viewMode === 'universe' && !isExploringInUniverse()) || state.viewMode === 'galaxy')
   ) {
-    const cosmicHits = state.raycaster.intersectObjects(
-      collectCosmicPickTargets(cosmos, { forHover }),
-      false
-    );
+    const cosmicHits = state.raycaster.intersectObjects(collectCosmicPickTargets(cosmos), false);
     if (cosmicHits.length && cosmicHits[0].object.userData.cosmicId) {
       return { type: 'cosmic', id: cosmicHits[0].object.userData.cosmicId };
     }
