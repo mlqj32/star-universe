@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Star宇宙 — 太阳系漫游</title>
+  <link rel="icon" type="image/png" href="图标.png" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
+  <script>
+    if (location.protocol === 'file:') {
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.innerHTML =
+          '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;background:#050810;color:#c8d4e8;font-family:system-ui,sans-serif;text-align:center;line-height:1.7">' +
+          '<div style="max-width:32rem">' +
+          '<h1 style="color:#7eb8ff;font-size:1.4rem;margin:0 0 1rem">无法直接双击打开</h1>' +
+          '<p>浏览器安全策略禁止在 <code style="color:#9ec5ff">file://</code> 下加载本项目的 ES Module 脚本，页面会白屏或报错。</p>' +
+          '<p style="margin-top:1.25rem">请改双击项目里的 <strong style="color:#ffd27a">启动.bat</strong>，会自动打开浏览器（本地临时服务，关窗口即停）。</p>' +
+          '<p style="margin-top:1rem;font-size:.9rem;opacity:.75">若已安装 Python：也可在文件夹地址栏输入 <code>cmd</code> 后执行<br><code>py -3 -m http.server 8765</code></p>' +
+          '</div></div>';
+      });
+    }
+  </script>
+</head>
+<body>
+  <div id="loading">
+    <div class="loader-ring"></div>
+    <p>正在载入宇宙…</p>
+    <span id="load-progress">0%</span>
+  </div>
+
+  <canvas id="universe"></canvas>
+
+  <header id="hud-top">
+    <h1>✦ Star宇宙</h1>
+    <nav id="view-switcher">
+      <button type="button" class="view-btn active" data-view="solar">太阳系</button>
+      <button type="button" class="view-btn" data-view="galaxy">银河系</button>
+      <button type="button" class="view-btn" data-view="universe">全宇宙</button>
+      <a
+        href="https://space.bilibili.com/259516939"
+        class="author-btn"
+        target="_blank"
+        rel="noopener noreferrer"
+      >关注作者</a>
+    </nav>
+    <span id="scale-info">距离比例：1 AU = 80 单位 · 椭圆轨道 + J2000 根数实时推算</span>
+  </header>
+
+  <aside id="hud-left">
+    <h2 id="nav-title">太阳系导航</h2>
+    <ul id="planet-list"></ul>
+    <button id="btn-back" class="hidden">← 返回</button>
+  </aside>
+
+  <aside id="hud-right" class="hidden">
+    <h2 id="focus-name">—</h2>
+    <p id="focus-desc"></p>
+    <div id="focus-stats"></div>
+    <div class="focus-panel-tabs hidden" id="focus-panel-tabs" role="tablist" aria-label="聚焦面板切换">
+      <button type="button" class="focus-tab active" data-tab="info" role="tab" aria-selected="true" aria-controls="focus-panel-info">详细信息</button>
+      <button type="button" class="focus-tab" data-tab="landmark" role="tab" aria-selected="false" aria-controls="focus-panel-landmark">地表地标</button>
+    </div>
+    <div id="focus-panel-info" class="focus-panel-pane active" role="tabpanel">
+      <div id="focus-detail"></div>
+    </div>
+    <div id="focus-panel-landmark" class="focus-panel-pane" role="tabpanel" hidden>
+      <div class="landmark-mode-toggle" role="group" aria-label="地标显示模式">
+        <button type="button" class="landmark-mode-btn" data-mode="all">全部显示</button>
+        <button type="button" class="landmark-mode-btn active" data-mode="click">点击显示</button>
+      </div>
+      <p class="landmark-mode-tip" id="landmark-mode-tip">点击列表中的地名，在球面显示标记并飞行抵达</p>
+      <ul id="landmark-list"></ul>
+    </div>
+  </aside>
+
+  <div id="landmark-hint" class="hidden" aria-live="polite"></div>
+
+  <footer id="hud-bottom">
+    <span>拖拽旋转 · 滚轮缩放 · 侧栏单击导航 · 画布双击聚焦</span>
+    <span id="camera-info"></span>
+  </footer>
+
+  <div id="tooltip" class="hidden"></div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="js/main.js?v=88"></script>
+</body>
+</html>

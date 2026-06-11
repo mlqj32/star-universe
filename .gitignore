@@ -1,0 +1,14 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Optional local caches
+node_modules/
+
+# Large ephemeris (download separately if needed)
+de421.bsp
+
+# Planet textures can be large; run 下载行星纹理.bat locally
+textures/planets/*.jpg
+textures/planets/*.png
