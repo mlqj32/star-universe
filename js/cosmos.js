@@ -199,7 +199,7 @@ function addMarker(group, { id, name, pos, r, color = 0x8899ff, prefix = '◈ ' 
   m.userData.cosmicName = name;
   m.userData.cosmicRadius = r;
 
-  const pickR = Math.max(r * 6, 75000);
+  const pickR = Math.max(r * 12, 22000);
   const pick = new THREE.Mesh(
     new THREE.SphereGeometry(pickR, 10, 10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -388,8 +388,17 @@ function addUniverseHomeAnchor(group) {
   const anchor = new THREE.Group();
   anchor.name = 'universeHomeAnchor';
 
+  const hover = new THREE.Mesh(
+    new THREE.SphereGeometry(4200, 10, 10),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  hover.name = 'universeHomeHover';
+  hover.userData.cosmicId = 'milkyway';
+  hover.userData.cosmicName = '银河系';
+  anchor.add(hover);
+
   const pick = new THREE.Mesh(
-    new THREE.SphereGeometry(140000, 10, 10),
+    new THREE.SphereGeometry(48000, 10, 10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   pick.name = 'cosmicPick';
@@ -512,13 +521,18 @@ export function getCosmicItem(id) {
   );
 }
 
-/** 收集全宇宙模式下可点击的碰撞体 */
-export function collectCosmicPickTargets(cosmos) {
+/** 收集宇宙标记碰撞体：悬停仅可见球体，双击保留扩大热区 */
+export function collectCosmicPickTargets(cosmos, { forHover = false } = {}) {
   const targets = [];
   for (const root of [cosmos?.universe, cosmos?.deepSpace]) {
     if (!root) continue;
     root.traverse((obj) => {
-      if (obj.name === 'cosmicPick') targets.push(obj);
+      if (forHover) {
+        if (obj.name === 'universeHomeHover') targets.push(obj);
+        else if (obj.name?.startsWith('cosmic_')) targets.push(obj);
+      } else if (obj.name === 'cosmicPick') {
+        targets.push(obj);
+      }
     });
   }
   return targets;
