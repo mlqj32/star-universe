@@ -229,6 +229,8 @@ export const PLANETS = [
     desc: '冰巨星，自转轴几乎横躺，呈现独特的蓝绿色。',
     texture: null,
     tilt: 97.77,
+    tiltAxis: 'z',
+    tiltSign: -1,
     rotationHours: -17.24,
     hasLandmarks: true,
     profile: {

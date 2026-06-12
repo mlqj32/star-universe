@@ -178,9 +178,6 @@ function applySolarViewShell() {
   state.activeRegion = null;
   markPickMeshesDirty();
   document.body.classList.remove('universe-mode', 'region-mode');
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.view === 'solar');
-  });
   hideAllExoSystems(exoSystems);
   if (galaxyOverview) galaxyOverview.visible = false;
   positionSolarGroupForMode();
@@ -314,9 +311,6 @@ function restoreExtendedView(saved) {
   state.focus = null;
 
   document.body.classList.remove('focus-mode');
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.view === saved.viewMode);
-  });
   document.body.classList.toggle('universe-mode', saved.viewMode === 'universe');
   document.body.classList.toggle(
     'region-mode',
@@ -1167,8 +1161,10 @@ function buildPlanet(data) {
   const obliquity = new THREE.Group();
   obliquity.name = 'obliquity';
   if (data.tilt) {
-    // 倾角与自转分轨：大倾角（天王星 ~98°）与 rotation.y 同轴会产生万向节锁，云带会像「横过来」
-    obliquity.rotation.x = (data.tilt * Math.PI) / 180;
+    // 倾角与自转分轨，避免万向节锁。天王星自转轴在黄道面内，需绕 Z 倾覆（绕 X 会把极轴指到 ±Z，云带仍像横条）
+    const axis = data.tiltAxis || 'x';
+    const sign = data.tiltSign ?? 1;
+    obliquity.rotation[axis] = (sign * data.tilt * Math.PI) / 180;
   }
   const spinPivot = new THREE.Group();
   spinPivot.name = 'spinPivot';
@@ -1430,7 +1426,44 @@ function shouldStayInUniverseView(from) {
   return state.viewMode === 'universe' || from === 'universe';
 }
 
+/** 顶部「太阳系 / 银河系 / 全宇宙」应与当前所见层级一致，而非仅跟内部 viewMode */
+function getEffectiveViewTab() {
+  if (
+    state.viewMode === 'solar' ||
+    state.activeStarSystem === 'sol' ||
+    state.roamingSystemId === 'sol'
+  ) {
+    return 'solar';
+  }
+  if (
+    state.viewMode === 'galaxy' ||
+    isExploringInUniverse() ||
+    state.activeStarSystem ||
+    state.roamingSystemId
+  ) {
+    return 'galaxy';
+  }
+  return 'universe';
+}
+
+function syncViewSwitcherHighlight() {
+  const tab = getEffectiveViewTab();
+  document.querySelectorAll('[data-view]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.view === tab);
+  });
+  const scaleInfo = document.getElementById('scale-info');
+  if (scaleInfo && !state.focus) {
+    const hints = {
+      solar: '距离比例：1 AU = 80 单位 · 椭圆轨道 + J2000 根数实时推算',
+      galaxy: '银河系 · 左侧选择恒星系逐一探索 · 行星位置按历元椭圆轨道推算',
+      universe: '全宇宙 · 仅银河系可探索真实恒星系 · 河外天体为远景参考',
+    };
+    scaleInfo.textContent = hints[tab] || hints.solar;
+  }
+}
+
 function updateLeftNav() {
+  syncViewSwitcherHighlight();
   const title = document.getElementById('nav-title');
   const list = document.getElementById('planet-list');
   const btnBack = document.getElementById('btn-back');
@@ -1554,6 +1587,23 @@ function updateGalaxyBackdrop() {
     activeStarSystem: state.activeStarSystem,
     roamingSystemId: state.roamingSystemId,
   });
+  const universeOverview =
+    state.viewMode === 'universe' &&
+    !isExploringInUniverse() &&
+    !state.activeStarSystem &&
+    !state.roamingSystemId;
+  if (universeOverview) {
+    applySolarBloom('universe');
+    renderer.toneMappingExposure = 1.02;
+  } else if (
+    (state.viewMode === 'galaxy' || isExploringInUniverse()) &&
+    !state.activeStarSystem &&
+    !state.roamingSystemId &&
+    !state.focus
+  ) {
+    applySolarBloom('galaxy');
+    renderer.toneMappingExposure = 1.22;
+  }
 }
 
 function getActiveSystemCameraLimits() {
@@ -1680,9 +1730,6 @@ function enterCosmicRegion(regionId, options = {}) {
   document.getElementById('hud-right')?.classList.add('hidden');
   document.getElementById('landmark-hint')?.classList.add('hidden');
   document.body.classList.remove('focus-mode');
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.view === (stayInUniverse ? 'universe' : 'galaxy'));
-  });
 
   updateLeftNav();
   document.getElementById('btn-back')?.classList.remove('hidden');
@@ -2012,6 +2059,7 @@ function applySolarRoamLighting(force = false) {
 function applySolarBloom(mode) {
   const presets = {
     roam: { strength: 0.24, threshold: 0.97, radius: 0.26 },
+    universe: { strength: 0.05, threshold: 0.995, radius: 0.18 },
     galaxy: { strength: 0.52, threshold: 0.86, radius: 0.42 },
     focusSun: { strength: 0, threshold: 1, radius: 0.2 },
     focusOther: { strength: 0.14, threshold: 0.95, radius: 0.28 },
@@ -2065,14 +2113,16 @@ const GAS_GIANTS = new Set(['jupiter', 'saturn', 'uranus', 'neptune']);
 const SATURN_RING_VIEW_BIAS = new THREE.Vector3(0.3, 0.68, 0.38).normalize();
 
 /** 土星环在赤道面内，侧视会收成一条线；聚焦时抬高视角以看见环面 */
-const URANUS_VIEW_BIAS = new THREE.Vector3(0.82, 0.18, 0.45).normalize();
+// 天王星自转轴在黄道面内：必须从黄道面侧视（y≈0），俯视角会把纬向云带压成横条
+const URANUS_VIEW_BIAS = new THREE.Vector3(0.14, 0.03, 0.99).normalize();
 
 function getFocusViewDirection(id, rawDir) {
   const dir = rawDir.clone();
   if (dir.lengthSq() < 1e-4) dir.set(0, 0.35, 1);
   dir.normalize();
   if (id === 'uranus') {
-    return dir.clone().lerp(URANUS_VIEW_BIAS, dir.lengthSq() < 1e-4 ? 1 : 0.5).normalize();
+    if (dir.lengthSq() < 1e-4 || dir.y > 0.16) return URANUS_VIEW_BIAS.clone();
+    return dir.clone().lerp(URANUS_VIEW_BIAS, 0.55).normalize();
   }
   if (id !== 'saturn') return dir;
   if (Math.abs(dir.y) < 0.45) {
@@ -2651,8 +2701,8 @@ function setViewMode(modeId, animate = true) {
     solarGroup.visible = false;
     if (galaxyOverview) galaxyOverview.visible = false;
     document.getElementById('btn-back')?.classList.remove('hidden');
-    applySolarBloom('roam');
-    if (modeId === 'universe') renderer.toneMappingExposure = 1.28;
+    applySolarBloom('universe');
+    renderer.toneMappingExposure = 1.02;
   }
 
   controls.maxDistance = cfg.camMax;
@@ -2660,20 +2710,6 @@ function setViewMode(modeId, animate = true) {
   camera.updateProjectionMatrix();
   updateLeftNav();
   writeViewStateSnapshot();
-
-  document.querySelectorAll('[data-view]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.view === modeId);
-  });
-
-  const scaleInfo = document.getElementById('scale-info');
-  if (scaleInfo) {
-    const hints = {
-      solar: '距离比例：1 AU = 80 单位 · 椭圆轨道 + J2000 根数实时推算',
-      galaxy: '银河系 · 左侧选择恒星系逐一探索 · 行星位置按历元椭圆轨道推算',
-      universe: '全宇宙 · 仅银河系可探索真实恒星系 · 河外天体为远景参考',
-    };
-    scaleInfo.textContent = hints[modeId] || hints.solar;
-  }
 
   const targetPos = new THREE.Vector3(...cfg.camPos);
   const targetLook = new THREE.Vector3(...cfg.camTarget);
@@ -3030,9 +3066,6 @@ document.querySelectorAll('[data-view]').forEach((btn) => {
       (isExploringInUniverse() || state.activeStarSystem || state.roamingSystemId)
     ) {
       exitUniverseRegionExplore();
-      document.querySelectorAll('[data-view]').forEach((b) => {
-        b.classList.toggle('active', b.dataset.view === 'universe');
-      });
       return;
     }
     setViewMode(view);

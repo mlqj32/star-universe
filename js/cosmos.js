@@ -505,6 +505,22 @@ export function syncMilkyWayView(
   cosmos.milkyWay.visible = universeOverview || galaxyMilky;
   const scale = universeOverview ? UNIVERSE_MILKY_SCALE : 1;
   cosmos.milkyWay.scale.set(scale, scale, scale);
+
+  const bulge = cosmos.milkyWay.getObjectByName('galacticBulge');
+  if (bulge) {
+    // 全宇宙总览整体放大后，银核光晕会叠成过曝白块，单独压低
+    bulge.scale.setScalar(universeOverview ? 0.16 : 1);
+  }
+  const stars = cosmos.milkyWay.getObjectByName('galacticStars');
+  if (stars?.material?.uniforms) {
+    stars.material.uniforms.uOpacity.value = universeOverview ? 0.62 : 0.9;
+    stars.material.uniforms.uSizeFactor.value = universeOverview ? 3.0 : 4.4;
+  }
+  const dust = cosmos.milkyWay.getObjectByName('galacticDust');
+  if (dust?.material?.uniforms) {
+    dust.material.uniforms.uOpacity.value = universeOverview ? 0.14 : 0.22;
+    dust.material.uniforms.uSizeFactor.value = universeOverview ? 4.2 : 5.6;
+  }
 }
 
 export function getCosmicItem(id) {
