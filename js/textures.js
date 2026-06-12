@@ -210,15 +210,20 @@ export function createProceduralTexture(planetId) {
       });
 
     case 'uranus':
-      return makeCanvas(512, 256, (ctx, w, h) => {
+      return makeCanvas(1024, 512, (ctx, w, h) => {
         const img = ctx.createImageData(w, h);
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < w; x++) {
             const i = (y * w + x) * 4;
-            const n = fbm(x * 0.01, y * 0.01, 4, 31);
-            img.data[i] = 120 + n * 40;
-            img.data[i + 1] = 200 + n * 50;
-            img.data[i + 2] = 210 + n * 30;
+            const lat = (y / h - 0.5) * Math.PI;
+            const lon = (x / w) * Math.PI * 2;
+            const band =
+              Math.sin(lat * 3.2 + fbm(lon * 1.4, lat * 2.2, 2, 2) * 1.6) * 0.5 + 0.5;
+            const n = fbm(x * 0.006, y * 0.004, 4, 31);
+            const haze = fbm(x * 0.018, y * 0.012, 3, 55) * 0.18;
+            img.data[i] = 82 + band * 38 + n * 24 + haze * 30;
+            img.data[i + 1] = 162 + band * 48 + n * 34 + haze * 22;
+            img.data[i + 2] = 182 + band * 36 + n * 28 + haze * 15;
             img.data[i + 3] = 255;
           }
         }
@@ -226,16 +231,20 @@ export function createProceduralTexture(planetId) {
       });
 
     case 'neptune':
-      return makeCanvas(512, 256, (ctx, w, h) => {
+      return makeCanvas(1024, 512, (ctx, w, h) => {
         const img = ctx.createImageData(w, h);
         for (let y = 0; y < h; y++) {
+          const lat = (y / h - 0.5) * Math.PI;
+          const band =
+            Math.sin(lat * 5.5 + fbm(0, y * 0.02, 2, 5) * 1.8) * 0.5 + 0.5;
           for (let x = 0; x < w; x++) {
             const i = (y * w + x) * 4;
-            const n = fbm(x * 0.012, y * 0.012, 5, 41);
-            const band = Math.sin(y * 0.05) * 0.15;
-            img.data[i] = 30 + n * 40 + band * 50;
-            img.data[i + 1] = 60 + n * 60 + band * 40;
-            img.data[i + 2] = 180 + n * 50;
+            const n = fbm(x * 0.009, y * 0.007, 5, 41);
+            const storm = fbm(x * 0.028, y * 0.012, 3, 77);
+            const darkSpot = storm > 0.78 ? -28 : 0;
+            img.data[i] = 22 + band * 35 + n * 38 + darkSpot;
+            img.data[i + 1] = 48 + band * 55 + n * 52 + darkSpot * 0.6;
+            img.data[i + 2] = 155 + band * 45 + n * 48 + darkSpot * 0.4;
             img.data[i + 3] = 255;
           }
         }

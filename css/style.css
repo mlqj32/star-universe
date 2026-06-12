@@ -41,16 +41,19 @@ body.boot-ready #universe {
   opacity: 1;
 }
 
-/* 启动完成前隐藏 HUD，避免黑屏 + 界面让人误以为卡死 */
+/* 启动完成前彻底隐藏 HUD，等场景渲染就绪后再显示 */
 body.booting #hud-top,
 body.booting #hud-left,
 body.booting #hud-bottom,
 body.booting #hud-right,
+body.booting #landmark-hint,
 body.booting #tooltip,
 body.booting .label-layer {
-  opacity: 0;
-  visibility: hidden;
+  display: none !important;
   pointer-events: none;
+}
+body.booting #universe {
+  opacity: 0;
 }
 
 /* Loading */

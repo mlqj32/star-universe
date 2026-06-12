@@ -3,6 +3,8 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { createExoSystemStarGlow, createSoftPointsMaterial } from './effects.js';
 
 const TWO_PI = Math.PI * 2;
+/** 全宇宙总览时放大银河盘，使其在远景中呈旋涡形态（非点团） */
+const UNIVERSE_MILKY_SCALE = 5.2;
 
 export const VIEW_MODES = {
   solar: {
@@ -353,7 +355,7 @@ function distantGalaxyField(count = 18000) {
     const v = Math.random();
     const theta = TWO_PI * u;
     const phi = Math.acos(2 * v - 1);
-    const r = 1400000 + Math.random() * 8600000;
+    const r = 3200000 + Math.random() * 6800000;
     positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
     positions[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
     positions[i * 3 + 2] = r * Math.cos(phi);
@@ -372,11 +374,8 @@ function distantGalaxyField(count = 18000) {
   return field;
 }
 
-/** 全宇宙原点：仅保留点击热区，不渲染实心标记（避免中心「出戏」白点） */
-function addUniverseHomeAnchor(group) {
-  const anchor = new THREE.Group();
-  anchor.name = 'universeHomeAnchor';
-
+/** 银河系原点交互热区（随 milkyWay 缩放，与旋涡盘对齐） */
+function addMilkyWayHomeTarget(milkyWay) {
   const hover = new THREE.Mesh(
     new THREE.SphereGeometry(4200, 10, 10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -385,10 +384,8 @@ function addUniverseHomeAnchor(group) {
   hover.userData.cosmicId = 'milkyway';
   hover.userData.cosmicName = '银河系';
   hover.userData.cosmicRadius = 1200;
-  anchor.add(hover);
-
-  group.add(anchor);
-  return anchor;
+  milkyWay.add(hover);
+  return hover;
 }
 
 export function createCosmos() {
@@ -402,6 +399,7 @@ export function createCosmos() {
   milkyWay.add(spiralGalaxyDust());
   milkyWay.add(spiralGalaxyParticles());
   milkyWay.add(createGalacticBulge());
+  addMilkyWayHomeTarget(milkyWay);
   group.add(milkyWay);
 
   const deepSpace = new THREE.Group();
@@ -438,7 +436,6 @@ export function createCosmos() {
   universe.add(cmb);
 
   universe.add(distantGalaxyField());
-  addUniverseHomeAnchor(universe);
 
   const addUniverseMarkers = (items, prefix) => {
     const seen = new Set();
@@ -485,12 +482,29 @@ export function setCosmosVisibility(
   }
 
   cosmos.group.visible = mode !== 'solar';
-  cosmos.milkyWay.visible = mode === 'galaxy';
   // 全宇宙模式不显示 deepSpace 实体标记（原点银河系硬球会特别突兀）
   cosmos.deepSpace.visible = mode === 'galaxy';
   cosmos.universe.visible = mode === 'universe';
   const field = cosmos.universe?.getObjectByName('galaxyField');
   if (field) field.visible = mode === 'universe';
+}
+
+/** 银河系盘面：全宇宙总览显示缩放旋涡，银河系视图显示原尺寸 */
+export function syncMilkyWayView(
+  cosmos,
+  { viewMode, exploringUniverse, activeRegion, activeStarSystem, roamingSystemId }
+) {
+  if (!cosmos?.milkyWay) return;
+  const inSystem = !!(activeStarSystem || roamingSystemId);
+  const universeOverview = viewMode === 'universe' && !exploringUniverse && !inSystem;
+  const galaxyMilky =
+    (viewMode === 'galaxy' || exploringUniverse) &&
+    (activeRegion || 'milkyway') === 'milkyway' &&
+    !inSystem;
+
+  cosmos.milkyWay.visible = universeOverview || galaxyMilky;
+  const scale = universeOverview ? UNIVERSE_MILKY_SCALE : 1;
+  cosmos.milkyWay.scale.set(scale, scale, scale);
 }
 
 export function getCosmicItem(id) {
@@ -504,7 +518,7 @@ export function getCosmicItem(id) {
 /** 宇宙标记碰撞体：悬停与双击共用可见标记球（与显示大小一致） */
 export function collectCosmicPickTargets(cosmos) {
   const targets = [];
-  for (const root of [cosmos?.universe, cosmos?.deepSpace]) {
+  for (const root of [cosmos?.universe, cosmos?.deepSpace, cosmos?.milkyWay]) {
     if (!root) continue;
     root.traverse((obj) => {
       if (obj.name === 'universeHomeHover') targets.push(obj);

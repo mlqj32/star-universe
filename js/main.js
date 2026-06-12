@@ -7,6 +7,7 @@ import {
   TEXTURE_BASE,
   visualRadius,
   orbitDistance,
+  getLandmarks,
 } from './data.js';
 import {
   createStarfield,
@@ -32,6 +33,7 @@ import {
 } from './effects.js';
 import {
   createLandmarkLabels,
+  ensureLandmarkLabels,
   updateLandmarkVisibility,
   updateLandmarksByDistance,
   clearActiveLandmark,
@@ -49,6 +51,7 @@ import {
 import {
   createCosmos,
   setCosmosVisibility,
+  syncMilkyWayView,
   VIEW_MODES,
   UNIVERSE_NAV_ITEMS,
   getCosmicItem,
@@ -137,18 +140,34 @@ function collectViewState() {
     activeRegion: state.activeRegion,
     activeCosmicId: state.activeCosmicId,
     regionEnteredFrom: state.regionEnteredFrom,
+    regionParent: state.regionParent,
   };
 }
 
-function saveViewStateNow() {
-  if (!viewSaveEnabled || state.animating || isCameraAnimating() || !bootReady) return;
+/** 立即写入（导航切换等），不等待相机动画结束 */
+function writeViewStateSnapshot() {
+  if (!bootReady) return;
   writeViewState(collectViewState());
+}
+
+function saveViewStateNow() {
+  if (!viewSaveEnabled || !bootReady) return;
+  if (state.animating || isCameraAnimating()) return;
+  writeViewStateSnapshot();
 }
 
 function scheduleSaveViewState() {
   if (!viewSaveEnabled) return;
   if (saveViewTimer) clearTimeout(saveViewTimer);
   saveViewTimer = setTimeout(saveViewStateNow, 450);
+}
+
+function persistViewStateOnExit() {
+  if (saveViewTimer) {
+    clearTimeout(saveViewTimer);
+    saveViewTimer = null;
+  }
+  writeViewStateSnapshot();
 }
 
 function applySolarViewShell() {
@@ -187,8 +206,10 @@ function applyPlanetFocusState(id, saved) {
   state.focus = id;
   markPickMeshesDirty();
   document.body.classList.add('focus-mode');
-  document.getElementById('btn-back')?.classList.remove('hidden');
-  document.getElementById('hud-right')?.classList.remove('hidden');
+  if (!bootUiLocked) {
+    document.getElementById('btn-back')?.classList.remove('hidden');
+    document.getElementById('hud-right')?.classList.remove('hidden');
+  }
 
   applyPlanetFocusLighting(id, entry.data);
   setSunGlowLevel(getSunEntry()?.mesh?.userData?.glow, id === 'sun' ? 'full' : 'dim');
@@ -215,11 +236,12 @@ function applyPlanetFocusState(id, saved) {
     li.classList.toggle('active', li.dataset.id === id);
   });
 
+  ensureLandmarkLabels(entry);
   ensurePlanetTextures(entry);
   reapplyCachedTextures(entry);
   setPlanetVisualMode(id);
   syncFocusedLandmarks(entry, getLandmarkDisplayMode(), camera);
-  showFocusPanel(entry);
+  if (!bootUiLocked) showFocusPanel(entry);
   return true;
 }
 
@@ -249,6 +271,8 @@ function restoreSolarView(saved) {
   setSunGlowLevel(getSunEntry()?.mesh?.userData?.glow, 'roam');
   document.getElementById('btn-back')?.classList.add('hidden');
   document.getElementById('hud-right')?.classList.add('hidden');
+  setPlanetVisualMode(null);
+  applySolarRoamLighting(true);
 }
 
 function applyRestoredExoCamera(saved, sys, worldPos, maxDist) {
@@ -284,6 +308,7 @@ function restoreExtendedView(saved) {
   state.activeRegion = saved.activeRegion ?? (saved.viewMode === 'galaxy' ? 'milkyway' : null);
   state.activeCosmicId = saved.activeCosmicId ?? null;
   state.regionEnteredFrom = saved.regionEnteredFrom ?? 'topnav';
+  state.regionParent = saved.regionParent ?? null;
   state.activeStarSystem = saved.activeStarSystem ?? null;
   state.roamingSystemId = saved.roamingSystemId ?? null;
   state.focus = null;
@@ -379,7 +404,7 @@ function restoreSavedView() {
   pendingViewRestore = null;
   if (!saved) {
     viewSaveEnabled = true;
-    return;
+    return Promise.resolve();
   }
 
   viewSaveEnabled = false;
@@ -388,13 +413,16 @@ function restoreSavedView() {
     restoreSolarView(saved);
     viewSaveEnabled = true;
     scheduleSaveViewState();
-    return;
+    return Promise.resolve();
   }
 
-  scheduleGalaxyInit(() => {
-    restoreExtendedView(saved);
-    viewSaveEnabled = true;
-    scheduleSaveViewState();
+  return new Promise((resolve) => {
+    scheduleGalaxyInit(() => {
+      restoreExtendedView(saved);
+      viewSaveEnabled = true;
+      scheduleSaveViewState();
+      resolve();
+    });
   });
 }
 
@@ -408,7 +436,10 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPrefere
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.25));
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-const DEFAULT_TONE_EXPOSURE = 1.28;
+const DEFAULT_TONE_EXPOSURE = 1.12;
+const ROAM_LIGHT = { sun: 6.5, amb: 0.15, hemi: 0.22 };
+const _sunWorldPos = new THREE.Vector3();
+let lastRoamLightDist = -1;
 renderer.toneMappingExposure = DEFAULT_TONE_EXPOSURE;
 renderer.sortObjects = true;
 
@@ -436,13 +467,19 @@ function cancelCameraAnimations() {
   state.animating = false;
 }
 
+let viewDragging = false;
+
 controls.addEventListener('start', () => {
+  viewDragging = true;
+  hideHoverTooltip();
   cancelCameraAnimations();
   setTextureUpgradePaused(true);
 });
 controls.addEventListener('end', () => {
+  viewDragging = false;
   setTimeout(() => setTextureUpgradePaused(false), 800);
   scheduleSaveViewState();
+  hoverPickRaf = requestAnimationFrame(runHoverPick);
 });
 
 const { composer, bloom } = setupPostProcessing(renderer, scene, camera);
@@ -476,13 +513,14 @@ function trackLoad() {
 }
 
 const bootStartedAt = performance.now();
-const BOOT_MIN_MS = 1100;
-const BOOT_MIN_FRAMES = 3;
-const BOOT_MAX_MS = 12000;
+const BOOT_MIN_MS = 1600;
+const BOOT_MIN_FRAMES = 10;
+const BOOT_MAX_MS = 20000;
 let bootReady = false;
 let bootDismissed = false;
 let bootRenderedFrames = 0;
 let sceneBusyActive = false;
+let bootUiLocked = true;
 
 document.body.classList.add('booting');
 
@@ -517,10 +555,72 @@ function hideSceneBusy() {
   if (bootDismissed) hideLoading();
 }
 
+function isFocusVisualReady() {
+  if (!state.focus || String(state.focus).includes(':')) return true;
+  const entry = state.planets.get(state.focus);
+  if (!entry) return true;
+  if (entry.data.isStar) return true;
+  const mat = entry.mesh?.material;
+  return !!(mat?.map || mat?.uniforms?.uMap);
+}
+
+function isCanvasSceneReady() {
+  if (!isFocusVisualReady()) return false;
+  try {
+    const gl = renderer.getContext();
+    const w = renderer.domElement.width;
+    const h = renderer.domElement.height;
+    if (w < 2 || h < 2) return false;
+    const buf = new Uint8Array(4);
+    const samples = [
+      [0.5, 0.5],
+      [0.38, 0.42],
+      [0.62, 0.58],
+      [0.5, 0.32],
+      [0.5, 0.68],
+    ];
+    for (const [ux, uy] of samples) {
+      gl.readPixels(
+        Math.floor(w * ux),
+        Math.floor(h * uy),
+        1,
+        1,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        buf
+      );
+      if (buf[0] + buf[1] + buf[2] > 18) return true;
+    }
+    return false;
+  } catch {
+    return bootRenderedFrames >= BOOT_MIN_FRAMES;
+  }
+}
+
+function flushBootUi() {
+  bootUiLocked = false;
+  if (!state.focus) {
+    updateLeftNav();
+    return;
+  }
+  document.getElementById('btn-back')?.classList.remove('hidden');
+  if (String(state.focus).includes(':')) {
+    const [sid, pid] = state.focus.split(':');
+    const exoEntry = exoSystems.get(sid)?.planets.get(pid);
+    const sys = getStarSystem(sid);
+    if (exoEntry && sys) showExoFocusPanel(sys, exoEntry.data, exoEntry);
+  } else {
+    const entry = state.planets.get(state.focus);
+    if (entry) showFocusPanel(entry);
+  }
+  updateLeftNav();
+}
+
 function dismissBootScreen() {
   if (bootDismissed) return;
   bootDismissed = true;
   setLoadScreen(100, '欢迎进入 Star宇宙');
+  flushBootUi();
   document.body.classList.remove('booting');
   document.body.classList.add('boot-ready');
   if (!sceneBusyActive) hideLoading();
@@ -530,6 +630,7 @@ function tryDismissLoading() {
   if (bootDismissed || !bootReady) return;
   if (bootRenderedFrames < BOOT_MIN_FRAMES) return;
   if (performance.now() - bootStartedAt < BOOT_MIN_MS) return;
+  if (!isCanvasSceneReady()) return;
   dismissBootScreen();
 }
 
@@ -537,13 +638,12 @@ setLoadScreen(0, '正在载入宇宙…');
 
 setTimeout(() => {
   if (bootDismissed) return;
-  if (bootReady && bootRenderedFrames >= 1) {
-    setLoadScreen(99, '正在渲染首帧…');
-    dismissBootScreen();
-    return;
-  }
   if (!bootReady) {
     setLoadScreen(92, '仍在初始化，请稍候…');
+    return;
+  }
+  if (bootRenderedFrames >= BOOT_MIN_FRAMES && isCanvasSceneReady()) {
+    dismissBootScreen();
   }
 }, BOOT_MAX_MS);
 
@@ -670,13 +770,28 @@ async function loadPlanetTextures(planetId) {
   const cfg = getPlanetTextureConfig(planetId);
   if (!cfg) return getInstantTextures(planetId);
 
-  const map = await loadTextureChain(cfg.map, { timeoutMs: 3500 });
+  const map = await loadTextureChain(cfg.map, {
+    timeoutMs: ['uranus', 'neptune', 'saturn', 'jupiter'].includes(planetId) ? 6000 : 3500,
+  });
   let bump = null;
   if (cfg.normal?.length) {
     bump = await loadTextureChain(cfg.normal, { srgb: false, timeoutMs: 3500 });
   }
 
-  if (!map) return getInstantTextures(planetId);
+  if (!map) {
+    const procedural =
+      planetId !== 'sun' && planetId !== 'earth' ? createProceduralTexture(planetId) : null;
+    if (procedural) {
+      return {
+        map: procedural,
+        bump: null,
+        normalScale: cfg.normalScale ?? 0.4,
+        roughness: cfg.roughness ?? 0.72,
+        generatedNormal: false,
+      };
+    }
+    return getInstantTextures(planetId);
+  }
 
   if (!bump && cfg.generateNormal !== false && !textureUpgradePaused) {
     scheduleNormalMapForPlanet(planetId, map, cfg);
@@ -708,6 +823,7 @@ function applyTexturesToPlanet(entry, textures) {
     mat.color.set(0xffffff);
     if (merged.roughness !== undefined) mat.roughness = merged.roughness;
     entry._appliedTextures = merged;
+    entry._hdTextureApplied = merged.map.isCanvasTexture !== true;
   } else if (merged.bump) {
     entry._appliedTextures = merged;
   }
@@ -742,8 +858,10 @@ function prioritizeTextureUpgrade(entry) {
 
 function ensurePlanetTextures(entry) {
   if (!entry || entry.data.isStar) return;
-  if (reapplyCachedTextures(entry)) return;
-  prioritizeTextureUpgrade(entry);
+  reapplyCachedTextures(entry);
+  if (!entry._hdTextureApplied && getPlanetTextureConfig(entry.data.id)) {
+    prioritizeTextureUpgrade(entry);
+  }
 }
 
 async function upgradePlanetTextures(entry) {
@@ -760,7 +878,7 @@ async function upgradePlanetTextures(entry) {
   entry._textureUpgrading = true;
   try {
     const textures = await loadPlanetTextures(data.id);
-    if (entry.mesh === mesh) applyTexturesToPlanet(entry, textures);
+    if (entry.mesh === mesh && textures.map) applyTexturesToPlanet(entry, textures);
 
     if (data.id === 'saturn') {
       await upgradeSaturnRings(entry);
@@ -819,6 +937,84 @@ function drainTextureUpgradeQueue() {
   }
 }
 
+/** 首屏程序纹理：逐帧生成，返回 Promise 供启动门控等待 */
+function fillProceduralTexturesAsync() {
+  const ids = PLANETS.filter((p) => !p.isStar && !p.isMoon).map((p) => p.id);
+  let idx = 0;
+  return new Promise((resolve) => {
+    const step = () => {
+      if (idx >= ids.length) {
+        resolve();
+        return;
+      }
+      const id = ids[idx++];
+      const entry = state.planets.get(id);
+      if (entry && !entry._appliedTextures?.map && !entry.mesh?.material?.map) {
+        try {
+          const map = createProceduralTexture(id);
+          if (map) applyTexturesToPlanet(entry, { map, bump: null, roughness: 0.82 });
+        } catch (err) {
+          console.warn(`程序纹理 ${id} 生成失败:`, err);
+        }
+      }
+      setLoadScreen(
+        96 + Math.round((idx / ids.length) * 2),
+        `生成行星表面… (${idx}/${ids.length})`
+      );
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function waitForPlanetVisualReady(entry, maxMs = 12000) {
+  return new Promise((resolve) => {
+    if (!entry) {
+      resolve();
+      return;
+    }
+    ensurePlanetTextures(entry);
+    const start = performance.now();
+    const tick = () => {
+      const mat = entry.mesh?.material;
+      const ready =
+        entry.data.isStar || !!mat?.map || !!mat?.uniforms?.uMap || !!mat?.uniforms?.uUseMap?.value;
+      if (ready || performance.now() - start > maxMs) resolve();
+      else requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+
+async function runBootPipeline() {
+  try {
+    setLoadScreen(94, '恢复上次视角…');
+    await restoreSavedView();
+    setLoadScreen(96, '生成行星表面…');
+    await fillProceduralTexturesAsync();
+    if (state.focus && !String(state.focus).includes(':')) {
+      const entry = state.planets.get(state.focus);
+      setLoadScreen(98, '加载聚焦天体…');
+      await waitForPlanetVisualReady(entry);
+      if (entry) {
+        reapplyCachedTextures(entry);
+        setPlanetVisualMode(state.focus);
+        applyPlanetFocusLighting(state.focus, entry.data);
+      }
+    } else {
+      setPlanetVisualMode(null);
+      applySolarRoamLighting(true);
+    }
+    applyAstroPositions(new Date());
+    markPickMeshesDirty();
+    setLoadScreen(99, '正在渲染场景…');
+    bootReady = true;
+  } catch (err) {
+    console.error('启动流程失败:', err);
+    bootReady = true;
+  }
+}
+
 function setTextureUpgradePaused(paused) {
   textureUpgradePaused = paused;
   if (!paused) drainTextureUpgradeQueue();
@@ -850,7 +1046,7 @@ function makeEarthMaterial(textures) {
     color: 0xffffff,
     map: textures.map,
     emissive: 0x182438,
-    emissiveIntensity: 0.14,
+    emissiveIntensity: 0.06,
     roughness: 0.78,
     metalness: 0.03,
   });
@@ -907,7 +1103,7 @@ function makePlanetMaterial(data, textures) {
     emissive: new THREE.Color(
       data.id === 'venus' ? 0x1a1008 : gasGiants.has(data.id) ? 0x101828 : 0x182438
     ),
-    emissiveIntensity: data.id === 'venus' ? 0.08 : gasGiants.has(data.id) ? 0.06 : 0.14,
+    emissiveIntensity: data.id === 'venus' ? 0.04 : gasGiants.has(data.id) ? 0.025 : 0.05,
   });
   if (textures.map) mat.map = textures.map;
   applyNormalMap(mat, textures);
@@ -960,7 +1156,7 @@ function buildPlanet(data) {
     ? { map: createProceduralSunTexture(), bump: null }
     : getInstantTextures(data.id);
 
-  const hiDetail = new Set(['earth', 'mars', 'jupiter', 'saturn', 'moon']);
+  const hiDetail = new Set(['earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune', 'moon']);
   const segs = data.isStar ? 128 : hiDetail.has(data.id) ? 64 : data.isMoon ? 56 : 48;
   const geo = new THREE.SphereGeometry(radius, segs, segs);
   const mat = makePlanetMaterial(data, textures);
@@ -968,9 +1164,16 @@ function buildPlanet(data) {
   mesh.name = 'body';
   mesh.userData.planetId = data.id;
 
+  const obliquity = new THREE.Group();
+  obliquity.name = 'obliquity';
   if (data.tilt) {
-    mesh.rotation.z = (data.tilt * Math.PI) / 180;
+    // 倾角与自转分轨：大倾角（天王星 ~98°）与 rotation.y 同轴会产生万向节锁，云带会像「横过来」
+    obliquity.rotation.x = (data.tilt * Math.PI) / 180;
   }
+  const spinPivot = new THREE.Group();
+  spinPivot.name = 'spinPivot';
+  spinPivot.add(mesh);
+  obliquity.add(spinPivot);
 
   if (data.isStar) {
     const glow = createSunGlow(radius);
@@ -990,7 +1193,7 @@ function buildPlanet(data) {
   }
 
   const bodyGroup = new THREE.Group();
-  bodyGroup.add(mesh);
+  bodyGroup.add(obliquity);
 
   if (!data.orbitParent && !data.isStar) {
     bodyGroup.position.x = dist;
@@ -1000,7 +1203,7 @@ function buildPlanet(data) {
 
   orbitPivot.add(bodyGroup);
 
-  if (data.hasLandmarks) {
+  if (data.hasLandmarks || getLandmarks(data.id).length) {
     createLandmarkLabels(mesh, data.id, radius);
   }
 
@@ -1017,6 +1220,8 @@ function buildPlanet(data) {
     group,
     orbitPivot,
     bodyGroup,
+    obliquity,
+    spinPivot,
     mesh,
     radius,
     dist,
@@ -1053,11 +1258,11 @@ function scheduleGalaxyInit(onReady) {
     requestAnimationFrame(() => {
       try {
         initGalaxySystems();
-        onReady?.();
       } catch (err) {
         console.warn('银河系数据加载失败:', err);
       } finally {
         hideSceneBusy();
+        onReady?.();
       }
     });
   });
@@ -1101,9 +1306,8 @@ function initSolarSystem() {
   updateLeftNav();
   applyAstroPositions(new Date());
   markPickMeshesDirty();
-  setLoadScreen(98, '准备渲染…');
-  bootReady = true;
-  restoreSavedView();
+  setLoadScreen(93, '准备启动…');
+  void runBootPipeline();
 
   const deferGalaxy = () => {
     try {
@@ -1142,7 +1346,7 @@ function applyAstroPositions(date) {
     if (d.orbitParent) {
       const moonAngle = getMoonOrbitAngle(date);
       entry.orbitPivot.rotation.y = moonAngle;
-      entry.mesh.rotation.y = moonAngle;
+      entry.spinPivot.rotation.y = moonAngle;
       if (state.focus === d.id && entry.ring) {
         alignOrbitRingToAngle(entry.ring, entry.dist, moonAngle);
       }
@@ -1160,12 +1364,10 @@ function applyAstroPositions(date) {
 
       if (d.id === 'earth') {
         const spin = getEarthMeshRotation(date, pos.longitude);
-        entry.mesh.rotation.y = spin;
-        const clouds = entry.mesh.getObjectByName('clouds');
-        if (clouds) clouds.rotation.y = spin;
+        entry.spinPivot.rotation.y = spin;
       } else if (d.rotationHours) {
         const sign = d.rotationHours < 0 ? -1 : 1;
-        entry.mesh.rotation.y = sign * getAxialSpinAngle(Math.abs(d.rotationHours), date);
+        entry.spinPivot.rotation.y = sign * getAxialSpinAngle(Math.abs(d.rotationHours), date);
       }
     }
   });
@@ -1345,14 +1547,13 @@ function updateGalaxyBackdrop() {
     state.activeStarSystem,
     state.roamingSystemId
   );
-  if (cosmos?.milkyWay) {
-    const inRegionView = state.viewMode === 'galaxy' || isExploringInUniverse();
-    cosmos.milkyWay.visible =
-      inRegionView &&
-      (state.activeRegion || 'milkyway') === 'milkyway' &&
-      !state.activeStarSystem &&
-      !state.roamingSystemId;
-  }
+  syncMilkyWayView(cosmos, {
+    viewMode: state.viewMode,
+    exploringUniverse: isExploringInUniverse(),
+    activeRegion: state.activeRegion,
+    activeStarSystem: state.activeStarSystem,
+    roamingSystemId: state.roamingSystemId,
+  });
 }
 
 function getActiveSystemCameraLimits() {
@@ -1485,6 +1686,7 @@ function enterCosmicRegion(regionId, options = {}) {
 
   updateLeftNav();
   document.getElementById('btn-back')?.classList.remove('hidden');
+  writeViewStateSnapshot();
 
   let camPos;
   let target;
@@ -1511,6 +1713,7 @@ function enterCosmicRegion(regionId, options = {}) {
   state.animating = true;
   animateTo(camPos, target, 2).then(() => {
     state.animating = false;
+    scheduleSaveViewState();
   });
 }
 
@@ -1583,6 +1786,7 @@ function approachStarSystem(systemId) {
   document.body.classList.remove('focus-mode');
   document.getElementById('hud-right')?.classList.add('hidden');
   markPickMeshesDirty();
+  writeViewStateSnapshot();
 
   const { worldPos, camPos, maxDist } = prepareStarSystemScene(systemId, sys);
   camera.updateProjectionMatrix();
@@ -1625,6 +1829,7 @@ function enterStarSystem(systemId) {
   updateLeftNav();
   document.getElementById('hud-right')?.classList.add('hidden');
   document.getElementById('btn-back')?.classList.remove('hidden');
+  writeViewStateSnapshot();
 
   state.animating = true;
   animateTo(camPos, worldPos, 1.6).then(() => {
@@ -1677,11 +1882,13 @@ function returnToRegionOverview(animate = true) {
     state.animating = true;
     animateTo(camPos, target, 1.6).then(() => {
       state.animating = false;
+      scheduleSaveViewState();
     });
   } else {
     camera.position.copy(camPos);
     controls.target.copy(target);
     controls.update();
+    scheduleSaveViewState();
   }
 }
 
@@ -1690,6 +1897,7 @@ function exitUniverseRegionExplore() {
   document.getElementById('hud-right')?.classList.add('hidden');
   document.body.classList.remove('focus-mode');
   updateLeftNav();
+  writeViewStateSnapshot();
   const cfg = VIEW_MODES.universe;
   controls.maxDistance = cfg.camMax;
   camera.far = cfg.far;
@@ -1697,6 +1905,7 @@ function exitUniverseRegionExplore() {
   state.animating = true;
   animateTo(new THREE.Vector3(...cfg.camPos), new THREE.Vector3(...cfg.camTarget), 1.8).then(() => {
     state.animating = false;
+    scheduleSaveViewState();
   });
 }
 
@@ -1727,6 +1936,7 @@ function visitCosmicStructure(id) {
   }
   state.activeCosmicId = id;
   updateLeftNav();
+  writeViewStateSnapshot();
   showCosmicPanel(item);
   flyToCosmicPoint(item);
 }
@@ -1781,11 +1991,29 @@ function getSunEntry() {
   return state.planets.get('sun');
 }
 
+/** 太阳系远景漫游：按相机距太阳远近压低曝光，避免行星缩成过曝白点 */
+function applySolarRoamLighting(force = false) {
+  if (state.viewMode !== 'solar' || state.focus) return;
+  const sunEntry = getSunEntry();
+  if (!sunEntry) return;
+  sunEntry.mesh.getWorldPosition(_sunWorldPos);
+  const dist = camera.position.distanceTo(_sunWorldPos);
+  if (!force && Math.abs(dist - lastRoamLightDist) < 120) return;
+  lastRoamLightDist = dist;
+  const far = THREE.MathUtils.clamp((dist - 280) / 4800, 0, 1);
+  sunLight.intensity = THREE.MathUtils.lerp(ROAM_LIGHT.sun, 3.6, far);
+  ambientLight.intensity = THREE.MathUtils.lerp(ROAM_LIGHT.amb, 0.06, far);
+  hemiLight.intensity = THREE.MathUtils.lerp(ROAM_LIGHT.hemi, 0.09, far);
+  renderer.toneMappingExposure = THREE.MathUtils.lerp(DEFAULT_TONE_EXPOSURE, 0.92, far);
+  bloom.threshold = THREE.MathUtils.lerp(0.98, 0.992, far);
+  bloom.strength = THREE.MathUtils.lerp(0.18, 0.08, far);
+}
+
 function applySolarBloom(mode) {
   const presets = {
-    roam: { strength: 0.38, threshold: 0.93, radius: 0.34 },
+    roam: { strength: 0.24, threshold: 0.97, radius: 0.26 },
     galaxy: { strength: 0.52, threshold: 0.86, radius: 0.42 },
-    focusSun: { strength: 0.46, threshold: 0.92, radius: 0.36 },
+    focusSun: { strength: 0, threshold: 1, radius: 0.2 },
     focusOther: { strength: 0.14, threshold: 0.95, radius: 0.28 },
     focusInner: { strength: 0.12, threshold: 0.95, radius: 0.26 },
     focusOuter: { strength: 0.1, threshold: 0.96, radius: 0.24 },
@@ -1798,7 +2026,7 @@ function applySolarBloom(mode) {
 
 /** 按日距分级调光：主光压高光，fill/amb/hemi 单独抬背阳面 */
 const FOCUS_LIGHTING = {
-  sun: { sun: 9, fill: 0, amb: 0.16, hemi: 0.2, exposure: 1.3, bloom: 'focusSun' },
+  sun: { sun: 2.2, fill: 0, amb: 0.05, hemi: 0.07, exposure: 0.92, bloom: 'focusSun' },
   mercury: { sun: 7.8, fill: 0.19, amb: 0.13, hemi: 0.19, exposure: 1.17, bloom: 'focusInner' },
   venus: { sun: 6.5, fill: 0.16, amb: 0.12, hemi: 0.18, exposure: 1.12, bloom: 'focusInner' },
   earth: { sun: 8.8, fill: 0.27, amb: 0.17, hemi: 0.24, exposure: 1.25, bloom: 'focusOther' },
@@ -1830,16 +2058,22 @@ function applyPlanetFocusLighting(id, data) {
   sunLight.intensity = L.sun;
   renderer.toneMappingExposure = L.exposure;
   applySolarBloom(L.bloom);
+  if (id === 'sun') lastRoamLightDist = -1;
 }
 
 const GAS_GIANTS = new Set(['jupiter', 'saturn', 'uranus', 'neptune']);
 const SATURN_RING_VIEW_BIAS = new THREE.Vector3(0.3, 0.68, 0.38).normalize();
 
 /** 土星环在赤道面内，侧视会收成一条线；聚焦时抬高视角以看见环面 */
+const URANUS_VIEW_BIAS = new THREE.Vector3(0.82, 0.18, 0.45).normalize();
+
 function getFocusViewDirection(id, rawDir) {
   const dir = rawDir.clone();
   if (dir.lengthSq() < 1e-4) dir.set(0, 0.35, 1);
   dir.normalize();
+  if (id === 'uranus') {
+    return dir.clone().lerp(URANUS_VIEW_BIAS, dir.lengthSq() < 1e-4 ? 1 : 0.5).normalize();
+  }
   if (id !== 'saturn') return dir;
   if (Math.abs(dir.y) < 0.45) {
     return dir.clone().lerp(SATURN_RING_VIEW_BIAS, 0.65).normalize();
@@ -2075,19 +2309,23 @@ function focusPlanet(id) {
   controls.minDistance = getFocusMinDist(id, entry.radius);
   controls.maxDistance = getFocusMaxDist(entry.radius);
 
+  ensureLandmarkLabels(entry);
   setPlanetVisualMode(id);
   syncFocusedLandmarks(entry, getLandmarkDisplayMode(), camera);
 
-  animateTo(targetCam, worldPos, 1.5).then(() => {
-    if (token !== focusToken || state.focus !== id) return;
-    state.animating = false;
-    ensurePlanetTextures(entry);
-    reapplyCachedTextures(entry);
-    setPlanetVisualMode(id);
-    showFocusPanel(entry);
-    syncFocusedLandmarks(entry, getLandmarkDisplayMode(), camera);
-    scheduleSaveViewState();
-  });
+  animateTo(targetCam, worldPos, 1.5)
+    .then(() => {
+      if (token !== focusToken || state.focus !== id) return;
+      ensurePlanetTextures(entry);
+      reapplyCachedTextures(entry);
+      setPlanetVisualMode(id);
+      showFocusPanel(entry);
+      syncFocusedLandmarks(entry, getLandmarkDisplayMode(), camera);
+      scheduleSaveViewState();
+    })
+    .finally(() => {
+      if (token === focusToken && state.focus === id) state.animating = false;
+    });
 }
 
 function setPlanetVisualMode(focusId) {
@@ -2095,10 +2333,11 @@ function setPlanetVisualMode(focusId) {
   const focusAu = focusEntry?.data?.orbitAU ?? 1;
 
   state.planets.forEach((e) => {
-    reapplyCachedTextures(e);
     const isFocus = focusId && e.data.id === focusId;
+    const isSunBackdrop = focusId === 'sun' && !isFocus && !e.data.isStar;
     const planetAu = e.data.orbitParent ? focusAu : (e.data.orbitAU ?? 1);
-    const isBgOuter = focusId && !isFocus && planetAu > focusAu * 1.6;
+    const isBgOuter =
+      (focusId && !isFocus && planetAu > focusAu * 1.6) || isSunBackdrop;
     if (e.landmarks) {
       updateLandmarkVisibility(e.landmarks, isFocus);
       if (isFocus) syncFocusedLandmarks(e, getLandmarkDisplayMode(), camera);
@@ -2122,14 +2361,17 @@ function setPlanetVisualMode(focusId) {
       } else if (isFocus && GAS_GIANTS.has(e.data.id)) {
         mat.emissiveIntensity = hasMap ? 0.1 : 0.13;
         if (mat.emissive) mat.emissive.setHex(0x1e2838);
+      } else if (isSunBackdrop) {
+        mat.emissiveIntensity = 0;
+        if (mat.emissive) mat.emissive.setHex(0x000000);
       } else if (isBgOuter && GAS_GIANTS.has(e.data.id)) {
-        mat.emissiveIntensity = hasMap ? 0.03 : 0.05;
+        mat.emissiveIntensity = hasMap ? 0.01 : 0.02;
         if (mat.emissive) mat.emissive.setHex(0x0c1018);
       } else if (isBgOuter) {
-        mat.emissiveIntensity = hasMap ? 0.06 : 0.09;
-        if (mat.emissive) mat.emissive.setHex(0x141c28);
+        mat.emissiveIntensity = hasMap ? 0.015 : 0.03;
+        if (mat.emissive) mat.emissive.setHex(0x101820);
       } else if (focusId && !isFocus && GAS_GIANTS.has(e.data.id)) {
-        mat.emissiveIntensity = hasMap ? 0.05 : 0.07;
+        mat.emissiveIntensity = hasMap ? 0.02 : 0.04;
         if (mat.emissive) mat.emissive.setHex(0x101820);
       } else if (isFocus && e.data.id === 'venus') {
         mat.emissiveIntensity = hasMap ? 0.07 : 0.1;
@@ -2141,15 +2383,12 @@ function setPlanetVisualMode(focusId) {
         mat.emissiveIntensity = hasMap ? 0.13 : 0.17;
         if (mat.emissive) mat.emissive.setHex(hasMap ? 0x283a52 : 0x283a52);
       } else {
-        mat.emissiveIntensity = hasMap ? 0.12 : 0.16;
-        if (mat.emissive) mat.emissive.setHex(0x1e3048);
+        mat.emissiveIntensity = hasMap ? 0.035 : 0.06;
+        if (mat.emissive) mat.emissive.setHex(0x141c28);
       }
     }
     if (mat?.color && hasMap) {
-      if (isBgOuter && GAS_GIANTS.has(e.data.id)) mat.color.setHex(0xaaaaaa);
-      else if (isBgOuter) mat.color.setHex(0xbbbbbb);
-      else if (focusId && !isFocus && GAS_GIANTS.has(e.data.id)) mat.color.setHex(0xb8b8b8);
-      else mat.color.setHex(0xffffff);
+      mat.color.setHex(0xffffff);
     }
     e.mesh.children.forEach((child) => {
       if (child.element?.classList?.contains('planet-label')) {
@@ -2247,6 +2486,7 @@ function renderFocusDetail(profile) {
 }
 
 function showExoFocusPanel(sys, planet, entry) {
+  if (bootUiLocked) return;
   document.getElementById('hud-right')?.classList.remove('hidden');
   document.getElementById('btn-back')?.classList.remove('hidden');
   document.getElementById('focus-name').textContent = `${planet.name} · ${sys.nameEn}`;
@@ -2263,6 +2503,7 @@ function showExoFocusPanel(sys, planet, entry) {
 }
 
 function showFocusPanel(entry) {
+  if (bootUiLocked) return;
   const d = entry.data;
   document.getElementById('hud-right').classList.remove('hidden');
   document.getElementById('btn-back').classList.remove('hidden');
@@ -2275,7 +2516,9 @@ function showFocusPanel(entry) {
     <div>公转周期：<span>${d.periodDays ? d.periodDays + ' 天' : '—'}</span></div>
   `;
   renderFocusDetail(d.profile);
-  setLandmarkSectionVisible(true);
+  ensureLandmarkLabels(entry);
+  setLandmarkSectionVisible(!!entry.landmarks);
+  if (!entry.landmarks) return;
   bindLandmarkModeToggle((mode) => {
     syncFocusedLandmarks(entry, mode, camera);
   });
@@ -2292,11 +2535,8 @@ function exitFocus() {
   state.planets.forEach((e) => reapplyCachedTextures(e));
   document.body.classList.remove('focus-mode');
   focusFillLight.intensity = 0;
-  hemiLight.intensity = 0.34;
-  ambientLight.intensity = 0.22;
-  sunLight.intensity = 10;
-  renderer.toneMappingExposure = DEFAULT_TONE_EXPOSURE;
   applySolarBloom('roam');
+  applySolarRoamLighting(true);
   setSunGlowLevel(getSunEntry()?.mesh?.userData?.glow, 'roam');
   controls.enablePan = true;
   controls.rotateSpeed = 1.1;
@@ -2397,7 +2637,7 @@ function setViewMode(modeId, animate = true) {
     positionSolarGroupForMode();
     setSolarOrbitRingsVisible(true, 'roam');
     applySolarBloom('roam');
-    renderer.toneMappingExposure = 1.28;
+    renderer.toneMappingExposure = DEFAULT_TONE_EXPOSURE;
     document.getElementById('btn-back')?.classList.add('hidden');
   } else if (modeId === 'galaxy') {
     hideAllExoSystems(exoSystems);
@@ -2419,6 +2659,7 @@ function setViewMode(modeId, animate = true) {
   camera.far = cfg.far;
   camera.updateProjectionMatrix();
   updateLeftNav();
+  writeViewStateSnapshot();
 
   document.querySelectorAll('[data-view]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === modeId);
@@ -2675,6 +2916,10 @@ function onMouseMove(e) {
 
 function runHoverPick() {
   hoverPickRaf = 0;
+  if (viewDragging) {
+    hideHoverTooltip();
+    return;
+  }
   const tip = document.getElementById('tooltip');
   if (isOverInteractiveHud(lastHoverX, lastHoverY)) {
     hideHoverTooltip();
@@ -2874,6 +3119,8 @@ function animate() {
     }
   }
 
+  if (state.viewMode === 'solar' && !state.focus) applySolarRoamLighting(false);
+
   controls.update();
   composer.render();
   if (state.focus) labelRenderer.render(scene, camera);
@@ -2883,7 +3130,7 @@ function animate() {
     tryDismissLoading();
   }
 
-  if (elapsed - hudLastUpdate > 0.35) {
+  if (!bootUiLocked && elapsed - hudLastUpdate > 0.35) {
     hudLastUpdate = elapsed;
     updateHudStatus();
   }
@@ -2912,7 +3159,11 @@ function updateHudStatus() {
     : `【漫游】${viewName} · 距离 ${dist} · 本地 ${timeStr}`;
 }
 
-window.addEventListener('beforeunload', saveViewStateNow);
+window.addEventListener('pagehide', persistViewStateOnExit);
+window.addEventListener('beforeunload', persistViewStateOnExit);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') persistViewStateOnExit();
+});
 
 window.addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -2939,6 +3190,7 @@ requestAnimationFrame(() => {
         '加载异常: ' + (window.__buildError || err.message);
       document.body.classList.remove('booting');
       document.body.classList.add('boot-ready');
+      bootUiLocked = false;
       bootDismissed = true;
     }
   });

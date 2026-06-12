@@ -11,6 +11,15 @@
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
   <script>
+    if (location.protocol.startsWith('http') && location.hostname === 'localhost') {
+      location.replace(
+        'http://127.0.0.1' +
+          (location.port ? ':' + location.port : '') +
+          location.pathname +
+          location.search +
+          location.hash
+      );
+    }
     if (location.protocol === 'file:') {
       document.addEventListener('DOMContentLoaded', function () {
         document.body.innerHTML =
@@ -19,7 +28,7 @@
           '<h1 style="color:#7eb8ff;font-size:1.4rem;margin:0 0 1rem">无法直接双击打开</h1>' +
           '<p>浏览器安全策略禁止在 <code style="color:#9ec5ff">file://</code> 下加载本项目的 ES Module 脚本，页面会白屏或报错。</p>' +
           '<p style="margin-top:1.25rem">请改双击项目里的 <strong style="color:#ffd27a">启动.bat</strong>，会自动打开浏览器（本地临时服务，关窗口即停）。</p>' +
-          '<p style="margin-top:1rem;font-size:.9rem;opacity:.75">若已安装 Python：也可在文件夹地址栏输入 <code>cmd</code> 后执行<br><code>py -3 -m http.server 8765</code></p>' +
+          '<p style="margin-top:1rem;font-size:.9rem;opacity:.75">若已安装 Python：也可在文件夹地址栏输入 <code>cmd</code> 后执行<br><code>py -3 -m http.server 8765 --bind 127.0.0.1</code></p>' +
           '</div></div>';
       });
     }
@@ -94,6 +103,6 @@
     }
   }
   </script>
-  <script type="module" src="js/main.js?v=90"></script>
+  <script type="module" src="js/main.js?v=101"></script>
 </body>
 </html>

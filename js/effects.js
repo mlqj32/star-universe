@@ -652,9 +652,9 @@ export function setupPostProcessing(renderer, scene, camera) {
   composer.addPass(new RenderPass(scene, camera));
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.38,
-    0.3,
-    0.92
+    0.24,
+    0.26,
+    0.97
   );
   bloom.resolution.set(
     Math.max(320, Math.floor(window.innerWidth * 0.55)),
@@ -779,18 +779,18 @@ export function createOverviewStarMarker(colorHex, size = 200) {
 }
 
 export function createSunLight() {
-  // 太阳系尺度下不能用物理平方反比(decay=2)，否则远端行星全黑
-  const light = new THREE.PointLight(0xfff4e8, 10, 0, 0.05);
+  // 太阳系尺度下不能用物理平方反比(decay=2)，否则远端行星全黑；衰减略提高以保留明暗交界
+  const light = new THREE.PointLight(0xfff4e8, 6.5, 0, 0.1);
   light.castShadow = false;
   return light;
 }
 
 export function createAmbientFill() {
-  return new THREE.AmbientLight(0x425878, 0.22);
+  return new THREE.AmbientLight(0x425878, 0.15);
 }
 
 export function createHemisphereLight() {
-  return new THREE.HemisphereLight(0x6a8ec0, 0x3a4a68, 0.34);
+  return new THREE.HemisphereLight(0x6a8ec0, 0x3a4a68, 0.22);
 }
 
 export function createFocusFillLight() {

@@ -108,6 +108,15 @@ export function setLandmarkDisplayMode(mode) {
   }
 }
 
+/** 有地标数据但启动时未创建 mesh 时补建（如水星/金星） */
+export function ensureLandmarkLabels(entry) {
+  if (!entry?.mesh || entry.landmarks) return entry?.landmarks ?? null;
+  const items = getLandmarks(entry.data?.id);
+  if (!items.length) return null;
+  entry.landmarks = createLandmarkLabels(entry.mesh, entry.data.id, entry.radius);
+  return entry.landmarks;
+}
+
 export function createLandmarkLabels(planetMesh, planetId, radius) {
   const group = new THREE.Group();
   group.name = 'landmarks';
@@ -130,19 +139,25 @@ export function createLandmarkLabels(planetMesh, planetId, radius) {
   return group;
 }
 
-/** 仅显示朝向相机半球的地标（CSS2D 标签无深度测试，背面必须手动剔除） */
-function updateLandmarkFacing(landmarkGroup, planetMesh, camera) {
-  if (!landmarkGroup || !planetMesh || !camera) return;
+/** 地标是否处在朝向相机的半球（CSS2D 无深度测试，背面须手动剔除） */
+function isLandmarkFacing(lm, planetMesh, camera) {
+  if (!lm || !planetMesh || !camera) return false;
   planetMesh.updateWorldMatrix(true, false);
   const planetPos = planetMesh.getWorldPosition(_planetPos);
+  const local = latLonToVector3(lm.lat, lm.lon, 1, 1.0);
+  _lmPos.set(local.x, local.y, local.z).applyMatrix4(planetMesh.matrixWorld);
+  _lmDir.copy(_lmPos).sub(planetPos).normalize();
+  _toCam.copy(camera.position).sub(_lmPos).normalize();
+  return _lmDir.dot(_toCam) > FACING_THRESHOLD;
+}
+
+/** 仅显示朝向相机半球的地标 */
+function updateLandmarkFacing(landmarkGroup, planetMesh, camera) {
+  if (!landmarkGroup || !planetMesh || !camera) return;
   landmarkGroup.children.forEach((sub) => {
     const lm = sub.userData.landmark;
     if (!lm) return;
-    const local = latLonToVector3(lm.lat, lm.lon, 1, 1.0);
-    _lmPos.set(local.x, local.y, local.z).applyMatrix4(planetMesh.matrixWorld);
-    _lmDir.copy(_lmPos).sub(planetPos).normalize();
-    _toCam.copy(camera.position).sub(_lmPos).normalize();
-    const facing = _lmDir.dot(_toCam) > FACING_THRESHOLD;
+    const facing = isLandmarkFacing(lm, planetMesh, camera);
     sub.visible = facing;
     sub.children.forEach((child) => {
       if (child.element?.classList?.contains('landmark-surface')) {
@@ -150,6 +165,25 @@ function updateLandmarkFacing(landmarkGroup, planetMesh, camera) {
       }
     });
   });
+}
+
+/** 选中地标随视角显隐：切到背面半球时隐藏，转回来再显示 */
+function updateActiveLandmarkFacing(planetMesh, camera) {
+  if (!activeLandmark?.group || activeLandmark.planetMesh !== planetMesh) return;
+  const facing = isLandmarkFacing(activeLandmark.lm, planetMesh, camera);
+  activeLandmark.group.visible = facing;
+  activeLandmark.group.traverse((child) => {
+    if (child.element) child.element.style.display = facing ? '' : 'none';
+  });
+  if (facing) {
+    updateActiveLandmarkBanner(activeLandmark.lm.name);
+    const pulse = activeLandmark.group.getObjectByName('pulse');
+    if (pulse) {
+      pulse.scale.setScalar(1 + Math.sin(performance.now() * 0.004) * 0.15);
+    }
+  } else {
+    updateActiveLandmarkBanner(null);
+  }
 }
 
 export function applyLandmarkDisplayMode(landmarkGroup, mode = landmarkDisplayMode, planetMesh, camera) {
@@ -245,31 +279,23 @@ export function hideLandmarkMarkers(landmarkGroup) {
 }
 
 export function updateLandmarksByDistance(landmarkGroup, cameraDist, radius, planetMesh, camera) {
-  if (!landmarkGroup?.visible || landmarkDisplayMode === 'none') return;
-
-  if (landmarkDisplayMode === 'all') {
-    updateLandmarkFacing(landmarkGroup, planetMesh, camera);
-  } else {
-    const showLabels = cameraDist < radius * 12;
-    landmarkGroup.children.forEach((sub) => {
-      if (!sub.visible) return;
-      sub.children.forEach((child) => {
-        if (child.element?.classList.contains('landmark-surface')) {
-          child.element.style.display = showLabels ? '' : 'none';
-        }
+  if (landmarkDisplayMode !== 'none' && landmarkGroup?.visible) {
+    if (landmarkDisplayMode === 'all') {
+      updateLandmarkFacing(landmarkGroup, planetMesh, camera);
+    } else {
+      const showLabels = cameraDist < radius * 12;
+      landmarkGroup.children.forEach((sub) => {
+        if (!sub.visible) return;
+        sub.children.forEach((child) => {
+          if (child.element?.classList.contains('landmark-surface')) {
+            child.element.style.display = showLabels ? '' : 'none';
+          }
+        });
       });
-    });
-  }
-
-  if (activeLandmark?.group) {
-    activeLandmark.group.children.forEach((child) => {
-      if (child.element) child.element.style.display = '';
-    });
-    const pulse = activeLandmark.group.getObjectByName('pulse');
-    if (pulse) {
-      pulse.scale.setScalar(1 + Math.sin(performance.now() * 0.004) * 0.15);
     }
   }
+
+  updateActiveLandmarkFacing(planetMesh, camera);
 }
 
 export function flyToLandmark(camera, controls, planetMesh, lm, radius, duration = 1.2) {

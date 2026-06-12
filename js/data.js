@@ -22,6 +22,7 @@ export const PLANETS = [
     texture: null,
     emissiveIntensity: 2.5,
     isStar: true,
+    hasLandmarks: true,
     profile: {
       life: '无（恒星等离子体环境）',
       habitability: '不可居住',
@@ -46,6 +47,7 @@ export const PLANETS = [
     texture: null,
     tilt: 0.034,
     rotationHours: 1407.6,
+    hasLandmarks: true,
     profile: {
       life: '无已知生命',
       habitability: '极低',
@@ -70,6 +72,7 @@ export const PLANETS = [
     texture: null,
     tilt: 177.4,
     rotationHours: -5832.5,
+    hasLandmarks: true,
     profile: {
       life: '无已知生命',
       habitability: '极低（温室效应极端）',

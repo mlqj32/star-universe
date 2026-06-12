@@ -51,10 +51,10 @@
 
 ```bash
 cd Star宇宙
-py -3 -m http.server 8765
+py -3 -m http.server 8765 --bind 127.0.0.1
 ```
 
-浏览器打开 `http://localhost:8765`。
+浏览器打开 `http://127.0.0.1:8765`。
 
 > 本项目使用 ES Module，**不能直接双击 `index.html`**（浏览器会拦截本地模块加载）。
 
@@ -62,13 +62,7 @@ py -3 -m http.server 8765
 
 推送至 `main` 分支后，在仓库 Settings → Pages 启用即可访问。
 
-### 行星纹理（可选）
-
-```bat
-双击 下载行星纹理.bat
-```
-
-将真实行星贴图下载到 `textures/planets/`，离线优先加载。
+行星真实贴图已随仓库提供（`textures/planets/`），克隆即用。若需重新下载可运行 `下载行星纹理.bat`。
 
 ## 操作说明
 

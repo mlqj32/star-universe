@@ -102,14 +102,26 @@ export const PLANET_TEXTURE_SETS = {
     generateNormal: false,
   },
   uranus: {
-    map: chain(`${LOCAL}/2k_uranus.jpg`, `${SSS}/2k_uranus.jpg`),
-    generateNormal: false,
-    roughness: 0.7,
+    map: chain(
+      `${LOCAL}/2k_uranus.jpg`,
+      `${WIKI}/1/13/Solarsystemscope_texture_2k_uranus.jpg`,
+      `https://commons.wikimedia.org/wiki/Special:FilePath/Solarsystemscope_texture_2k_uranus.jpg`,
+      `${SSS}/2k_uranus.jpg`
+    ),
+    normalScale: 0.16,
+    generateNormal: true,
+    roughness: 0.62,
   },
   neptune: {
-    map: chain(`${LOCAL}/2k_neptune.jpg`, `${SSS}/2k_neptune.jpg`),
-    generateNormal: false,
-    roughness: 0.7,
+    map: chain(
+      `${LOCAL}/2k_neptune.jpg`,
+      `${WIKI}/1/1c/Solarsystemscope_texture_2k_neptune.jpg`,
+      `https://commons.wikimedia.org/wiki/Special:FilePath/Solarsystemscope_texture_2k_neptune.jpg`,
+      `${SSS}/2k_neptune.jpg`
+    ),
+    normalScale: 0.18,
+    generateNormal: true,
+    roughness: 0.6,
   },
   pluto: {
     map: chain(`${LOCAL}/2k_pluto.jpg`, `${ART}/pluto.jpg`, `${SSS}/2k_pluto.jpg`),
