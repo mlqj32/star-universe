@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 >nul
-title Star宇宙
+title ARS原创宇宙
 echo.
 echo  ====================================
-echo        Star宇宙 - 太阳系漫游
+echo        ARS原创宇宙 - 星域图谱
 echo  ====================================
 echo.
 echo  正在启动本地服务器...

@@ -1,108 +1,67 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Star宇宙 — 太阳系漫游</title>
-  <link rel="icon" type="image/png" href="图标.png" />
-  <link rel="stylesheet" href="css/style.css" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
-  <script>
-    if (location.protocol.startsWith('http') && location.hostname === 'localhost') {
-      location.replace(
-        'http://127.0.0.1' +
-          (location.port ? ':' + location.port : '') +
-          location.pathname +
-          location.search +
-          location.hash
-      );
-    }
-    if (location.protocol === 'file:') {
-      document.addEventListener('DOMContentLoaded', function () {
-        document.body.innerHTML =
-          '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem;background:#050810;color:#c8d4e8;font-family:system-ui,sans-serif;text-align:center;line-height:1.7">' +
-          '<div style="max-width:32rem">' +
-          '<h1 style="color:#7eb8ff;font-size:1.4rem;margin:0 0 1rem">无法直接双击打开</h1>' +
-          '<p>浏览器安全策略禁止在 <code style="color:#9ec5ff">file://</code> 下加载本项目的 ES Module 脚本，页面会白屏或报错。</p>' +
-          '<p style="margin-top:1.25rem">请改双击项目里的 <strong style="color:#ffd27a">启动.bat</strong>，会自动打开浏览器（本地临时服务，关窗口即停）。</p>' +
-          '<p style="margin-top:1rem;font-size:.9rem;opacity:.75">若已安装 Python：也可在文件夹地址栏输入 <code>cmd</code> 后执行<br><code>py -3 -m http.server 8765 --bind 127.0.0.1</code></p>' +
-          '</div></div>';
-      });
-    }
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080e13">
+  <title>ARS 原创宇宙 · 星域图谱</title>
+  <link rel="icon" type="image/png" href="textures/original/lumila.png">
+  <link rel="stylesheet" href="css/atlas.css?v=20261007-nearby-ruins">
+  <script type="importmap">
+    {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script type="module" src="js/atlas.js?v=20261014-canon"></script>
 </head>
 <body>
-  <div id="loading">
-    <div class="loader-ring"></div>
-    <p>正在载入宇宙…</p>
-    <span id="load-progress">0%</span>
-  </div>
+  <div id="app" class="overview-mode">
+    <canvas id="space" aria-label="ARS 原创宇宙星图"></canvas>
+    <header class="topbar">
+      <div class="identity"><span class="brand-mark" aria-hidden="true">✦</span><div><strong>ARS 宇宙</strong><small>原创星域图谱</small></div></div>
+      <div class="top-actions"><div class="mode-switch" role="group" aria-label="视图模式"><button id="overview-btn" type="button" aria-pressed="true">星域总览</button><button id="focus-btn" type="button" aria-pressed="false">星球聚焦</button></div><button id="distance-btn" class="distance-launch" type="button" title="打开距离计算" aria-label="打开距离计算"><i data-lucide="ruler"></i><span>距离计算</span></button><button id="reset-btn" class="icon-btn" type="button" title="重置视角" aria-label="重置视角"><i data-lucide="rotate-ccw"></i></button><button id="menu-btn" class="icon-btn mobile-only" type="button" title="打开星球目录" aria-label="打开星球目录"><i data-lucide="list"></i></button></div>
+    </header>
 
-  <canvas id="universe"></canvas>
+    <aside class="catalog" id="catalog" aria-label="世界目录">
+      <div class="catalog-head"><span class="eyebrow">ATLAS / 01</span><h1>星域目录</h1><p>三十五处世界档案 · 十八颗导航恒星</p></div>
+      <label class="search-wrap"><i data-lucide="search"></i><input id="search" type="search" placeholder="搜索世界或企划" autocomplete="off" aria-label="搜索世界或企划"></label>
+      <div class="filter-row" role="group" aria-label="世界筛选"><button class="filter active" data-filter="all" type="button">全部</button><button class="filter" data-filter="civilized" type="button">文明世界</button><button class="filter" data-filter="ruins" type="button">遗址</button><button class="filter" data-filter="uninhabited" type="button">无人天体</button></div>
+      <div id="planet-list" class="planet-list"></div>
+      <div class="catalog-foot">航路尺度依据原创宇宙设定，不对应现实天文单位。</div>
+    </aside>
 
-  <header id="hud-top">
-    <h1>✦ Star宇宙</h1>
-    <nav id="view-switcher">
-      <button type="button" class="view-btn active" data-view="solar">太阳系</button>
-      <button type="button" class="view-btn" data-view="galaxy">银河系</button>
-      <button type="button" class="view-btn" data-view="universe">全宇宙</button>
-      <a
-        href="https://space.bilibili.com/259516939"
-        class="author-btn"
-        target="_blank"
-        rel="noopener noreferrer"
-      >关注作者</a>
-    </nav>
-    <span id="scale-info">距离比例：1 AU = 80 单位 · 椭圆轨道 + J2000 根数实时推算</span>
-  </header>
+    <main class="viewport-caption" aria-live="polite"><span class="eyebrow" id="scene-label">星域总览</span><div class="scene-title"><span class="scene-line"></span><h2 id="scene-title">原创宇宙</h2></div><p id="scene-subtitle">星际坐标</p></main>
+    <div id="overview-markers" class="overview-markers" aria-label="星域总览坐标"></div>
 
-  <aside id="hud-left">
-    <h2 id="nav-title">太阳系导航</h2>
-    <ul id="planet-list"></ul>
-    <button id="btn-back" class="hidden">← 返回</button>
-  </aside>
+    <aside class="detail" id="detail" aria-label="世界详情">
+      <div class="detail-top"><span class="eyebrow">WORLD FILE</span><span id="detail-index">-- / 32</span></div>
+      <div class="detail-title"><div class="detail-swatch" id="detail-swatch"></div><div><span class="detail-type" id="detail-type">文明行星</span><h2 id="detail-name">露米菈星</h2></div></div>
+      <p class="detail-desc" id="detail-desc"></p>
+      <section class="detail-profile" aria-label="内部档案">
+        <span class="field-name detail-profile-heading" id="detail-profile-heading">星球内部档案</span>
+        <div id="detail-profile"></div>
+      </section>
+      <div class="detail-section"><span class="field-name" id="detail-field-arc">关联企划</span><strong id="detail-arc"></strong></div>
+      <div class="detail-section"><span class="field-name" id="detail-field-region">叙事星域</span><strong id="detail-region"></strong></div>
+      <div class="detail-section"><span class="field-name" id="detail-field-distance">航路尺度</span><strong id="detail-distance"></strong></div>
+      <div class="detail-section places"><span class="field-name" id="detail-field-places">已知地点</span><div id="detail-places"></div></div>
+      <div class="detail-bottom"><button id="next-btn" type="button">下一处世界 <i data-lucide="arrow-right"></i></button></div>
+    </aside>
 
-  <aside id="hud-right" class="hidden">
-    <h2 id="focus-name">—</h2>
-    <p id="focus-desc"></p>
-    <div id="focus-stats"></div>
-    <div class="focus-panel-tabs hidden" id="focus-panel-tabs" role="tablist" aria-label="聚焦面板切换">
-      <button type="button" class="focus-tab active" data-tab="info" role="tab" aria-selected="true" aria-controls="focus-panel-info">详细信息</button>
-      <button type="button" class="focus-tab" data-tab="landmark" role="tab" aria-selected="false" aria-controls="focus-panel-landmark">地表地标</button>
-    </div>
-    <div id="focus-panel-info" class="focus-panel-pane active" role="tabpanel">
-      <div id="focus-detail"></div>
-    </div>
-    <div id="focus-panel-landmark" class="focus-panel-pane" role="tabpanel" hidden>
-      <div class="landmark-mode-toggle" role="group" aria-label="地标显示模式">
-        <button type="button" class="landmark-mode-btn" data-mode="all">全部显示</button>
-        <button type="button" class="landmark-mode-btn active" data-mode="click">点击显示</button>
+    <dialog id="distance-modal" class="distance-modal" aria-labelledby="distance-heading">
+      <div class="distance-dialog">
+        <div class="distance-dialog-head"><div><span class="eyebrow">NAVIGATION / REALITY CHECK</span><h2 id="distance-heading">星际距离计算</h2></div><button id="distance-close" class="icon-btn" type="button" title="关闭" aria-label="关闭距离计算"><i data-lucide="x"></i></button></div>
+        <p class="distance-lead">太阳系行星按当前星历计算；原创世界按企划星图估算，并分别评估现实航天可达性。</p>
+        <div class="distance-selects"><label>出发世界<select id="distance-from" aria-label="出发世界"></select></label><span class="distance-arrow" aria-hidden="true"><i data-lucide="arrow-right"></i></span><label>目标世界<select id="distance-to" aria-label="目标世界"></select></label></div>
+        <div class="distance-primary"><span id="distance-kind">空间直线距离</span><strong id="distance-value">--</strong><small id="distance-detail">--</small></div>
+        <div class="distance-metrics"><div><span>光速通信 / 光线抵达</span><strong id="distance-light-time">--</strong></div><div><span>按探测器瞬时最高速度计算的理论下限</span><strong id="distance-fastest-time">--</strong></div></div>
+        <section class="distance-tech"><span class="field-name">现实技术判定</span><h3 id="distance-tech-title" class="distance-tech-title">--</h3><p id="distance-tech-detail">--</p><p id="distance-crewed">--</p></section>
+        <p id="distance-current" class="distance-current">--</p>
+      <p class="distance-disclaimer">口径说明：太阳系八大行星使用 Astronomy Engine 的当前日心星历；其他星球的坐标来自本企划，光年距离没有现实观测依据。以上均为空间直线距离，不是飞行航程。技术判断只采用现有人类航天能力，不使用魔法或跃迁。每秒约 192 公里是帕克太阳探测器近太阳瞬时峰值，不能作为持续巡航速度。</p>
       </div>
-      <p class="landmark-mode-tip" id="landmark-mode-tip">点击列表中的地名，在球面显示标记并飞行抵达</p>
-      <ul id="landmark-list"></ul>
-    </div>
-  </aside>
+    </dialog>
 
-  <div id="landmark-hint" class="hidden" aria-live="polite"></div>
-
-  <footer id="hud-bottom">
-    <span>拖拽旋转 · 滚轮缩放 · 侧栏单击导航 · 画布双击聚焦</span>
-    <span id="camera-info"></span>
-  </footer>
-
-  <div id="tooltip" class="hidden"></div>
-
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
-    }
-  }
-  </script>
-  <script type="module" src="js/main.js?v=105"></script>
+    <div class="controls" aria-label="视角控制"><button id="zoom-in" class="icon-btn" type="button" title="放大" aria-label="放大"><i data-lucide="plus"></i></button><button id="zoom-out" class="icon-btn" type="button" title="缩小" aria-label="缩小"><i data-lucide="minus"></i></button></div>
+    <div class="status"><span class="status-dot"></span><span id="status-text">星图载入中</span></div>
+  </div>
 </body>
 </html>
