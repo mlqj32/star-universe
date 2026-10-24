@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import * as Astronomy from '../vendor/astronomy.js';
-import { worlds, worldById } from './world.js?v=20261014-canon';
-import { endpointNotes, solarPairNotes } from './distanceNarratives.js?v=20261014-canon';
-import { canonPairAssessments } from './canonRelations.js?v=20261014-canon';
+import { worlds, worldById } from './world.js?v=20261024-distance-fix';
+import { endpointNotes, solarPairNotes } from './distanceNarratives.js?v=20261024-distance-fix';
+import { canonPairAssessments } from './canonRelations.js?v=20261024-distance-fix';
 
 const $ = (selector) => document.querySelector(selector);
 const PLANET_RADIUS = 4.2;
